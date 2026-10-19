@@ -454,9 +454,29 @@ source install/setup.bash
 ```
 
 Launch the nodes in separate terminals:
+**Terminal 1**
+(Run the simulator)
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
+ros2 run turtlesim turtlesim_node
+```
+in each terminal run at the begining the number 42 is the example for each computer
+
+**Terminal 2**
+(Create a new topic (path information))
 
 ```bash
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
 ros2 run turtle_controller odom_listener
+```
+
+**Terminal 3**
+(Controller)
+```bash
+source /opt/ros/humble/setup.bash
+export ROS_DOMAIN_ID=42
 ros2 run turtle_controller triangle_mover
 ```
 

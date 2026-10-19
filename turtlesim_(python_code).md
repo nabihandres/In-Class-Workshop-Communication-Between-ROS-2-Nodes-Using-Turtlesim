@@ -1,101 +1,79 @@
 🐢 ROS 2 Workshop: Communication Between Nodes with Turtlesim
 🎯 Workshop Objective
 
-Develop two ROS 2 nodes that communicate through topics to control the movement of Turtlesim in a triangular pattern using pose (odometry-style) information.
+Develop two ROS 2 nodes that communicate with each other through topics to control the movement of Turtlesim in a triangular pattern, using odometry information.
 
-The workshop consists of two nodes:
+🧱 Part 1: Create the Workspace
 
-odom_listener.py: Measures and publishes the total distance traveled by the turtle.
-triangle_stepper.py: Controls the turtle to follow an equilateral triangular path.
-🧱 Part 1: Create the ROS 2 Workspace
+Before starting development with ROS 2, you need to create a workspace, which is a working environment where all the project packages will be stored and built.
 
-Create the workspace and its source directory:
+The following commands allow you to create and prepare this environment:
 
 mkdir -p ~/ros2_ws/src
+
+
+This command creates a folder called ros2_ws inside your home directory (~) and, within it, a subfolder called src. The src folder is essential because it is where the ROS packages you create or clone will be placed. colcon build automatically searches for packages inside this folder to build them.
+
 cd ~/ros2_ws
 colcon build
+
+
+After creating the workspace structure, navigate to the root directory (ros2_ws) and run colcon build, the recommended tool for building ROS 2 workspaces. This command builds all packages inside src and generates the build/, install/, and log/ directories. The install/ directory contains the files needed to run the nodes and scripts.
+
 source install/setup.bash
 
 
-The workspace contains the following directories:
-
-src/: Source code for ROS 2 packages.
-build/: Intermediate build files.
-install/: Installed packages and executable scripts.
-log/: Build logs.
-
-Note: Run source install/setup.bash in every new terminal before executing your custom nodes.
+This command configures the current terminal environment so that it recognizes the packages and nodes you have built in your workspace. It is very important to run this command in every new terminal before running any node.
 
 📦 Part 2: Create the Package
 
-Navigate to the source directory and create the Python package:
+Create a package named turtle_controller with Python support and the required dependencies:
 
 cd ~/ros2_ws/src
-
-ros2 pkg create turtle_controller \
-  --build-type ament_python \
-  --dependencies rclpy geometry_msgs turtlesim std_msgs
+ros2 pkg create turtle_controller --build-type ament_python --dependencies rclpy geometry_msgs turtlesim
 
 
-The expected package structure is:
+Expected package structure:
 
-ros2_ws/
-└── src/
-    └── turtle_controller/
-        ├── resource/
-        │   └── turtle_controller
-        ├── turtle_controller/
-        │   └── __init__.py
-        ├── package.xml
-        ├── setup.cfg
-        └── setup.py
+turtle_controller/
+├── turtle_controller/
+│   └── __init__.py
+├── package.xml
+├── setup.cfg
+├── setup.py
 
 🐢 Part 3: Run Turtlesim
 
-Open a new terminal and start Turtlesim:
+In a new terminal:
 
 source /opt/ros/humble/setup.bash
 ros2 run turtlesim turtlesim_node
 
-
-Keep this terminal running.
-
 📥 Part 4: Subscriber Node — odom_listener.py
-
-This node subscribes to /turtle1/pose, calculates the distance traveled between consecutive poses, and publishes the accumulated distance to /turtle1/path_length.
 
 Create the file:
 
 cd ~/ros2_ws/src/turtle_controller/turtle_controller
 touch odom_listener.py
+chmod +x odom_listener.py
 
-
-Add the following code:
-
-import math
-
+📘 What does this node do?
+Subscribes to the /turtle1/pose topic, where Turtlesim publishes its pose information.
+Calculates the total distance traveled by the turtle by adding the displacements between each pair of consecutive points.
+Publishes the accumulated distance to the /turtle1/path_length topic.
+Displays the total distance in the terminal and allows it to be visualized using rqt_plot.
+📄 Code:
 import rclpy
 from rclpy.node import Node
 from turtlesim.msg import Pose
 from std_msgs.msg import Float32
-
+import math
 
 class OdomListener(Node):
     def __init__(self):
         super().__init__('odom_listener')
-
-        self.subscription = self.create_subscription(
-            Pose,
-            '/turtle1/pose',
-            self.pose_callback,
-            10
-        )
-
-        self.publisher = self.create_publisher(
-            Float32,
-            '/turtle1/path_length',
-            10
-        )
+        self.subscription = self.create_subscription(Pose, '/turtle1/pose', self.pose_callback, 10)
+        self.publisher = self.create_publisher(Float32, '/turtle1/path_length', 10)
 
         self.last_pose = None
         self.total_distance = 0.0
@@ -104,258 +82,227 @@ class OdomListener(Node):
         if self.last_pose is not None:
             dx = msg.x - self.last_pose.x
             dy = msg.y - self.last_pose.y
-
             increment = math.hypot(dx, dy)
             self.total_distance += increment
 
         self.last_pose = msg
 
-        distance_msg = Float32()
-        distance_msg.data = float(self.total_distance)
+        msg_out = Float32()
+        msg_out.data = self.total_distance
+        self.publisher.publish(msg_out)
 
-        self.publisher.publish(distance_msg)
-
-        self.get_logger().info(
-            f'Total distance traveled: '
-            f'{self.total_distance:.2f} units'
-        )
-
+        self.get_logger().info(f"Total distance traveled: {self.total_distance:.2f} units")
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = OdomListener()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
-
-
-if __name__ == '__main__':
-    main()
-
-How It Works
-Subscribes to /turtle1/pose.
-Calculates the displacement between consecutive positions using:
-increment = math.hypot(dx, dy)
-
-Adds the displacement to the accumulated distance.
-Publishes the total distance to /turtle1/path_length.
-Prints the total distance in the terminal.
-
-The total distance can be visualized using rqt_plot:
-
-ros2 run rqt_plot rqt_plot
-
-
-Enter /turtle1/path_length/data in the plot field.
-
-📤 Part 5: Publisher Node — triangle_stepper.py
-
-This node controls the turtle to follow an equilateral triangle with a side length of 3.0 units.
-
-It uses the following topics:
-
-Subscriber: /turtle1/pose
-Publisher: /turtle1/cmd_vel
-
-The node rotates toward each vertex, moves forward, and repeats the sequence indefinitely.
-
-Create the file:
-
-cd ~/ros2_ws/src/turtle_controller/turtle_controller
-touch triangle_stepper.py
-
-
-Add the following code:
-
+📄 Code Explanation:
+import rclpy
+from rclpy.node import Node
+from turtlesim.msg import Pose
+from std_msgs.msg import Float32
 import math
 
+The required modules are imported:
+Pose: Receives the turtle's position and orientation.
+Float32: Publishes the total distance traveled.
+math: Provides functions such as hypot, which calculates the Euclidean distance.
+class OdomListener(Node):
+    def __init__(self):
+        super().__init__('odom_listener')
+
+Defines a node named odom_listener.
+        self.subscription = self.create_subscription(Pose, '/turtle1/pose', self.pose_callback, 10)
+        self.publisher = self.create_publisher(Float32, '/turtle1/path_length', 10)
+
+The node:
+Subscribes to the /turtle1/pose topic.
+Publishes the accumulated total distance traveled to the /turtle1/path_length topic.
+        self.last_pose = None
+        self.total_distance = 0.0
+
+Stores the last known position so that changes in distance can be calculated.
+    def pose_callback(self, msg):
+        if self.last_pose is not None:
+            dx = msg.x - self.last_pose.x
+            dy = msg.y - self.last_pose.y
+            increment = math.hypot(dx, dy)
+            self.total_distance += increment
+
+        self.last_pose = msg
+
+Every time a new pose is received:
+Calculates the distance traveled since the previous pose.
+Adds it to the accumulated total.
+Updates the last known position.
+        msg_out = Float32()
+        msg_out.data = self.total_distance
+        self.publisher.publish(msg_out)
+
+Publishes the accumulated total as a Float32 message.
+        self.get_logger().info(f"Total distance traveled: {self.total_distance:.2f} units")
+
+Prints the total distance in the terminal to two decimal places.
+def main(args=None):
+    rclpy.init(args=args)
+    node = OdomListener()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
+
+Standard ROS 2 structure for initializing, running, and shutting down the node.
+📤 Part 5: Publisher Node — triangle_stepper.py
+
+First, create the node file:
+
+touch triangle_stepper.py
+chmod +x triangle_stepper.py
+
+📘 What does this node do?
+
+This node controls the turtle's movement so that it follows an equilateral triangle accurately, using the pose information published on /turtle1/pose.
+
+Its behavior is as follows:
+
+The turtle calculates three vertices that form an equilateral triangle, using its starting position as the first point.
+It rotates in place until it is aligned with the next vertex.
+It then moves straight ahead for exactly 3 units to reach that vertex.
+It pauses briefly, turns toward the next vertex, and repeats the process.
+The triangular pattern repeats indefinitely, following the intended geometric path.
+📄 Code:
 import rclpy
 from rclpy.node import Node
 from turtlesim.msg import Pose
 from geometry_msgs.msg import Twist
-
+import math
 
 class TriangleStepper(Node):
     def __init__(self):
         super().__init__('triangle_stepper')
-
         self.pose = None
-        self.state = 'initialize'
-
-        self.vertices = []
-        self.vertex_index = 1
-        self.target = None
+        self.state = 'turn'
         self.origin = None
+        self.target = None
+        self.angle_target = None
         self.pause_time = None
+
+        self.subscription = self.create_subscription(Pose, '/turtle1/pose', self.update_pose, 10)
+        self.publisher = self.create_publisher(Twist, '/turtle1/cmd_vel', 10)
+        self.timer = self.create_timer(0.1, self.control_loop)
 
         self.L = 3.0
         self.epsilon = 0.01
-
-        self.subscription = self.create_subscription(
-            Pose,
-            '/turtle1/pose',
-            self.update_pose,
-            10
-        )
-
-        self.publisher = self.create_publisher(
-            Twist,
-            '/turtle1/cmd_vel',
-            10
-        )
-
-        self.timer = self.create_timer(
-            0.1,
-            self.control_loop
-        )
+        self.vertices = []
+        self.vertex_index = 0
 
     def update_pose(self, msg):
         self.pose = msg
 
     def control_loop(self):
-        if self.pose is None:
+        if not self.pose:
             return
 
-        cmd = Twist()
+        msg = Twist()
 
-        # Initialize the triangle using the initial turtle position.
-        if self.state == 'initialize':
-            x0 = self.pose.x
-            y0 = self.pose.y
-
+        # Initialize the triangle only once
+        if not self.vertices:
+            x0, y0 = self.pose.x, self.pose.y
             p1 = (x0, y0)
             p2 = (x0 + self.L, y0)
-            p3 = (
-                x0 + self.L / 2.0,
-                y0 + self.L * math.sqrt(3.0) / 2.0
-            )
-
+            p3 = (x0 + self.L / 2, y0 + (self.L * math.sqrt(3)) / 2)
             self.vertices = [p1, p2, p3]
-            self.vertex_index = 1
-            self.target = p2
             self.origin = p1
+            self.target = p2
+            self.vertex_index = 1
             self.state = 'turn'
-
-            self.get_logger().info(
-                'Equilateral triangle initialized.'
-            )
             return
 
-        # Calculate the direction toward the next vertex.
         dx = self.target[0] - self.pose.x
         dy = self.target[1] - self.pose.y
-
         angle_to_target = math.atan2(dy, dx)
-        angle_diff = self.normalize_angle(
-            angle_to_target - self.pose.theta
-        )
+        angle_diff = self.normalize_angle(angle_to_target - self.pose.theta)
 
-        # State 1: Rotate toward the next vertex.
         if self.state == 'turn':
             if abs(angle_diff) > self.epsilon:
-                cmd.angular.z = 1.5 * angle_diff
+                msg.angular.z = 1.0 * angle_diff
             else:
-                cmd.angular.z = 0.0
+                msg.angular.z = 0.0
                 self.state = 'pause'
                 self.pause_time = self.get_clock().now()
                 self.origin = (self.pose.x, self.pose.y)
 
-        # State 2: Pause briefly before moving.
         elif self.state == 'pause':
             now = self.get_clock().now()
-
-            elapsed = (
-                now - self.pause_time
-            ).nanoseconds / 1e9
-
-            if elapsed >= 0.3:
+            if (now - self.pause_time).nanoseconds / 1e9 > 0.3:
                 self.state = 'move'
 
-        # State 3: Move toward the next vertex.
         elif self.state == 'move':
-            traveled = math.hypot(
-                self.pose.x - self.origin[0],
-                self.pose.y - self.origin[1]
-            )
-
+            traveled = math.hypot(self.pose.x - self.origin[0], self.pose.y - self.origin[1])
             if traveled < self.L:
-                cmd.linear.x = min(1.5, 1.5 * (self.L - traveled))
+                msg.linear.x = 1.5
             else:
-                cmd.linear.x = 0.0
-
-                self.vertex_index = (
-                    self.vertex_index + 1
-                ) % 3
-
-                self.target = self.vertices[self.vertex_index]
+                msg.linear.x = 0.0
                 self.state = 'turn'
+                self.vertex_index = (self.vertex_index + 1) % 3
+                self.target = self.vertices[self.vertex_index]
 
-        self.publisher.publish(cmd)
+        self.publisher.publish(msg)
 
-    @staticmethod
-    def normalize_angle(angle):
-        return math.atan2(
-            math.sin(angle),
-            math.cos(angle)
-        )
-
+    def normalize_angle(self, angle):
+        return math.atan2(math.sin(angle), math.cos(angle))
 
 def main(args=None):
     rclpy.init(args=args)
-
     node = TriangleStepper()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        # Stop the turtle when the node is shut down.
-        node.publisher.publish(Twist())
-        node.destroy_node()
-        rclpy.shutdown()
+📄 Code Explanation:
+import rclpy
+from rclpy.node import Node
+from turtlesim.msg import Pose
+from geometry_msgs.msg import Twist
+import math
 
+Imports the required modules to create a node, subscribe to pose information, and publish movement commands.
+class TriangleStepper(Node):
+    def __init__(self):
+        ...
 
-if __name__ == '__main__':
-    main()
+Defines the triangle_stepper node, which controls movement using pose information and trajectory-planning logic.
+        self.vertices = []
+        self.vertex_index = 0
 
-How It Works
+Defines a list containing the three triangle vertices that the turtle will visit in a loop.
+    def control_loop(self):
+        ...
 
-The node uses a state machine with three main states:
+This function runs every 0.1 seconds and defines the sequence of actions:
+turn: Rotate toward the next vertex.
+pause: Stop briefly to ensure stability.
+move: Move in a straight line until the next vertex is reached.
+        if not self.vertices:
+            ...
 
-turn: Rotates the turtle toward the next vertex.
-pause: Waits briefly before moving.
-move: Moves the turtle toward the target vertex.
+Initializes the three triangle vertices based on the turtle's current position.
+        self.angle_target = self.normalize_angle(...)
 
-The three vertices are calculated using the initial position and the side length:
+Calculates the angle the turtle needs to reach to align itself with the next vertex.
+        self.publisher.publish(msg)
 
-p1 = (x0, y0)
-p2 = (x0 + L, y0)
-p3 = (
-    x0 + L / 2.0,
-    y0 + L * math.sqrt(3.0) / 2.0
-)
+Publishes velocity commands to /turtle1/cmd_vel to move the turtle.
+⚙️ Part 6: Configure the setup.py File
 
+For the package's Python nodes to be executed directly using ros2 run, they must be registered in the entry_points section of the setup.py file.
 
-The target vertex changes after each side is completed, allowing the turtle to repeat the triangular trajectory.
+If this file was generated automatically, modify it as follows:
 
-Important: The turtle must start in a position where all three vertices fit inside the Turtlesim window. Otherwise, the turtle may reach a boundary before completing the triangle.
-
-⚙️ Part 6: Configure setup.py
-
-Open the package's setup.py file:
-
-cd ~/ros2_ws/src/turtle_controller
-
-
-Replace its contents with:
-
+📝 Modify the setup.py File
 from setuptools import find_packages, setup
 
 package_name = 'turtle_controller'
@@ -365,21 +312,16 @@ setup(
     version='0.0.0',
     packages=find_packages(exclude=['test']),
     data_files=[
-        (
-            'share/ament_index/resource_index/packages',
-            ['resource/' + package_name]
-        ),
-        (
-            'share/' + package_name,
-            ['package.xml']
-        ),
+        ('share/ament_index/resource_index/packages',
+            ['resource/' + package_name]),
+        ('share/' + package_name, ['package.xml']),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
-    maintainer='student',
-    maintainer_email='student@example.com',
-    description='ROS 2 Turtlesim triangular motion controller',
-    license='Apache-2.0',
+    maintainer='anthony',
+    maintainer_email='anthony@todo.todo',
+    description='TODO: Package description',
+    license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
@@ -389,125 +331,17 @@ setup(
     },
 )
 
-Explanation
-
-The console_scripts section registers the Python nodes so they can be launched using ros2 run.
-
-The format is:
-
+🔍 Explanation
+In console_scripts, you define a list of scripts that ROS 2 can execute as nodes.
+Each entry follows this format:
 command_name = package.module_name:main_function
 
 
 For example:
 
+odom_listener is the command used to run the node:
 ros2 run turtle_controller odom_listener
 
+This command is linked to the odom_listener.py file inside the package directory and its main() function.
 
-runs the main() function from odom_listener.py.
-
-The second command:
-
-ros2 run turtle_controller triangle_mover
-
-
-runs the main() function from triangle_stepper.py.
-
-The command is called triangle_mover, even though the Python file is named triangle_stepper.py. This is intentional because the executable name is defined in setup.py.
-
-🛠️ Part 7: Build the Workspace
-
-Run:
-
-cd ~/ros2_ws
-colcon build --packages-select turtle_controller
-
-
-After the build finishes, source the workspace:
-
-source ~/ros2_ws/install/setup.bash
-
-
-If you open a new terminal, source both the ROS 2 installation and your workspace:
-
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-
-🚀 Part 8: Run the Nodes
-
-Use three separate terminals.
-
-Terminal 1: Start Turtlesim
-source /opt/ros/humble/setup.bash
-ros2 run turtlesim turtlesim_node
-
-Terminal 2: Start the Distance Listener
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-
-ros2 run turtle_controller odom_listener
-
-Terminal 3: Start the Triangle Controller
-source /opt/ros/humble/setup.bash
-source ~/ros2_ws/install/setup.bash
-
-ros2 run turtle_controller triangle_mover
-
-
-The turtle should begin moving along a triangular trajectory, while the distance listener reports the accumulated distance.
-
-🔎 Part 9: Verify Topic Communication
-
-List the active topics:
-
-ros2 topic list
-
-
-Inspect the turtle's pose:
-
-ros2 topic echo /turtle1/pose
-
-
-Inspect the accumulated distance:
-
-ros2 topic echo /turtle1/path_length
-
-
-Inspect the velocity commands:
-
-ros2 topic echo /turtle1/cmd_vel
-
-
-You can also inspect the node connections:
-
-ros2 node list
-ros2 topic info /turtle1/pose
-ros2 topic info /turtle1/cmd_vel
-
-📤 Deliverables
-
-Each student must submit:
-
-odom_listener.py
-triangle_stepper.py
-A video showing the turtle moving in a triangular pattern while both custom nodes are running.
-The complete ROS 2 package, including setup.py and package.xml.
-📚 Concepts Learned
-
-By completing this workshop, you will learn how to:
-
-Create and build a ROS 2 Python package.
-Implement publisher and subscriber nodes.
-Subscribe to Turtlesim pose information.
-Publish velocity commands using geometry_msgs/msg/Twist.
-Calculate traveled distance using coordinate differences.
-Use timers and state machines to control robot movement.
-Run and inspect ROS 2 nodes and topics.
-📝 Notes
-This workshop targets ROS 2 Humble.
-The turtle's pose topic provides position and orientation information; it is not a full physical robot odometry message.
-The distance calculation approximates the traveled path by summing consecutive pose displacements.
-The triangular controller uses pose feedback, but its movement is not guaranteed to be perfectly precise. Actual motion depends on the update rate, controller gains, and Turtlesim boundaries.
-Make sure both Python files are inside turtle_controller/turtle_controller/.
-Always rebuild the workspace after changing package configuration or Python entry points.
-
-Happy coding! 🐢🚀
+⚠️ Important note: Make sure both files (odom_listener.py and triangle_stepper.py) are inside the turtle_controller/turtle_controller/ directory and
